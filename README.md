@@ -47,9 +47,11 @@ Each app is a standalone `main.cpp`. To run a different app, copy its `main.cpp`
 | **Generative Art** | Plasma, flow field particles, moire rings, cellular drift | `cp apps/genart/main.cpp src/main.cpp && pio run -t upload` |
 | **Weather Station** | OpenWeatherMap display with icons (requires WiFi config) | See [Weather Setup](#weather-station) below |
 | **Mini TV** | Plays RGB332 video files from SD card | `cp apps/minitv/main.cpp src/main.cpp && pio run -t upload` |
-| **Bouncing Bubbles** | Physics-based elastic collision demo | `cp apps/bubbles/main.cpp src/main.cpp && pio run -t upload` |
-| **Analog Clock** | Smooth analog clock with shadows and digital readout | `cp apps/clock/main.cpp src/main.cpp && pio run -t upload` |
-| **Vortex** | Hypnotic recursive spiral zoom effect | `cp apps/vortex/main.cpp src/main.cpp && pio run -t upload` |
+| **Bouncing Bubbles**\* | Physics-based elastic collision demo | `cp apps/bubbles/main.cpp src/main.cpp && pio run -t upload` |
+| **Analog Clock**\* | Smooth analog clock with shadows and digital readout | `cp apps/clock/main.cpp src/main.cpp && pio run -t upload` |
+| **Vortex**\* | Hypnotic recursive spiral zoom effect | `cp apps/vortex/main.cpp src/main.cpp && pio run -t upload` |
+
+\* Ported from [LovyanGFX](https://github.com/lovyan03/LovyanGFX) sample code by [@lovyan03](https://github.com/lovyan03).
 
 ### Weather Station
 
@@ -120,3 +122,7 @@ convert_dvd_logo.py     DVD logo converter
 convert_video.py        Video-to-RGB332 converter
 platformio.ini          PlatformIO build config
 ```
+
+## Acknowledgments
+
+This project is built on top of [LovyanGFX](https://github.com/lovyan03/LovyanGFX) by [@lovyan03](https://github.com/lovyan03), which provides the fast graphics engine, sprite system, and display driver that make all of these apps possible. The Bouncing Bubbles, Analog Clock, and Vortex apps are direct ports of LovyanGFX sample code. The double-buffered rendering, `diffDraw`, and RGB332 sprite techniques used throughout the project all originate from LovyanGFX.
