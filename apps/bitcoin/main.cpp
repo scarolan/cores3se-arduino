@@ -31,7 +31,7 @@ static bool fetchedData = false;
 static void connectWiFi() {
   if (connectedToWiFi) return;
   
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   wifiRetryCount++;
   
   uint32_t start = millis();
@@ -109,7 +109,7 @@ static void drawPrice(float price, bool valid) {
       lcd.drawString("WiFi fail - check config", SCR_W / 2, 140);
       lcd.setTextSize(1);
       lcd.setTextColor(TFT_GRAY, TFT_BLACK);
-      lcd.drawString("Edit: #define WIFI_SSID/PASS", SCR_W / 2, 170);
+      lcd.drawString("Check .env WiFi settings", SCR_W / 2, 170);
     }
     return;
   }
