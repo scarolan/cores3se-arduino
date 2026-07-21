@@ -125,7 +125,7 @@ static void fillRect(uint8_t* buf, int x, int y, int w, int h, uint8_t color) {
 // ============================================================
 // Simple 5x7 font for Matrix and Bouncing Logo
 // ============================================================
-static const uint8_t font5x7[][5] PROGMEM = {
+static const uint8_t font5x7[][5] = {
   // ASCII 33-90 (! to Z), index = char - 33
   {0x00,0x00,0x5F,0x00,0x00}, // !
   {0x00,0x07,0x00,0x07,0x00}, // "
