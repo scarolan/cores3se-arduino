@@ -4,3 +4,4 @@
 .venv
 src/config.h
 *.env*
+.aider*
