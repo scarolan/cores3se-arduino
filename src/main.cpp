@@ -753,7 +753,7 @@ static void renderBounce(uint8_t* buf) {
 // ============================================================
 #define MAX_ROCKETS 4
 #define MAX_SPARKS 220
-#define FW_GRAVITY 0.045f
+#define FW_GRAVITY 0.011f
 
 struct Rocket {
   float x, y;
@@ -798,8 +798,8 @@ static void neoFlash(uint8_t r, uint8_t g, uint8_t b, int cx) {
 static void launchRocket(Rocket& r) {
   r.x = random(30, SCR_W - 30);
   r.y = SCR_H - 1;
-  r.vx = (float)(random(0, 100) - 50) * 0.008f;   // slight horizontal drift
-  r.vy = -(2.6f + random(0, 60) * 0.01f);         // -2.6 .. -3.2 px/frame
+  r.vx = (float)(random(0, 100) - 50) * 0.004f;   // slight horizontal drift
+  r.vy = -(1.3f + random(0, 60) * 0.005f);        // -1.3 .. -1.6 px/frame
   r.targetY = random(35, SCR_H / 2);
   r.hue = random(0, 360);
   r.active = true;
@@ -828,12 +828,12 @@ static void explodeRocket(Rocket& r) {
     Spark* s = allocSpark();
     if (!s) break;
     float ang = random(0, 628) * 0.01f;           // 0 .. ~2*pi
-    float spd = 0.4f + random(0, 100) * 0.022f;   // 0.4 .. 2.6 px/frame
+    float spd = 0.2f + random(0, 100) * 0.011f;   // 0.2 .. 1.3 px/frame
     s->x = r.x;
     s->y = r.y;
     s->vx = cosf(ang) * spd;
     s->vy = sinf(ang) * spd * 0.9f;               // slightly squashed burst
-    s->maxLife = s->life = random(35, 85);
+    s->maxLife = s->life = random(70, 170);
     s->hue = r.hue + random(-25, 26);             // color variation
     if (s->hue < 0.0f) s->hue += 360.0f;
     if (s->hue >= 360.0f) s->hue -= 360.0f;
@@ -856,7 +856,7 @@ static void renderFireworks(uint8_t* buf) {
   }
 
   // Keep the sky lively with random launches
-  if (random(0, 100) < 5) {
+  if (random(0, 100) < 3) {
     for (int i = 0; i < MAX_ROCKETS; i++) {
       if (!rockets[i].active) { launchRocket(rockets[i]); break; }
     }
@@ -869,10 +869,10 @@ static void renderFireworks(uint8_t* buf) {
     if (!r.active) continue;
     r.x += r.vx;
     r.y += r.vy;
-    r.vy += 0.025f;  // gravity slows the ascent
+    r.vy += 0.006f;  // gravity slows the ascent
 
     // Orange embers dripping off the ascending rocket
-    if (random(0, 100) < 60) {
+    if (random(0, 100) < 30) {
       int ex = (int)r.x + random(-1, 2);
       int ey = (int)r.y + random(1, 4);
       if (ex >= 0 && ex < SCR_W && ey >= 0 && ey < SCR_H)
@@ -883,7 +883,7 @@ static void renderFireworks(uint8_t* buf) {
     if (ix >= 0 && ix < SCR_W && iy >= 0 && iy < SCR_H)
       buf[iy * SCR_W + ix] = headColor;
 
-    if (r.y <= r.targetY || r.vy > -0.5f) {
+    if (r.y <= r.targetY || r.vy > -0.25f) {
       r.active = false;
       explodeRocket(r);
     }
@@ -896,7 +896,7 @@ static void renderFireworks(uint8_t* buf) {
     s.x += s.vx;
     s.y += s.vy;
     s.vy += FW_GRAVITY;
-    s.vx *= 0.985f;  // air drag
+    s.vx *= 0.992f;  // air drag
     s.life--;
     if (s.life == 0 || s.y >= SCR_H || s.x < 0 || s.x >= SCR_W) {
       s.active = false;
@@ -904,7 +904,7 @@ static void renderFireworks(uint8_t* buf) {
     }
 
     // Twinkle: sparks blink in and out
-    if (random(0, 100) < 18) continue;
+    if (random(0, 100) < 9) continue;
 
     float t = (float)s.life / s.maxLife;  // 1 -> 0 as spark dies
     uint8_t v = 60 + (uint8_t)(t * 195);
