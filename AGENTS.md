@@ -7,7 +7,7 @@ This file contains essential information for AI coding assistants working on thi
 **Project:** CoreS3 SE Arduino Projects  
 **Device:** M5Stack CoreS3 SE (ESP32-S3, 320x240 IPS, 16MB flash)  
 **Framework:** PlatformIO + Arduino  
-**Current App:** Classic Screensavers (6 modes with auto-cycling)
+**Current App:** Classic Screensavers (7 modes with auto-cycling)
 
 ## Hardware Setup
 
@@ -89,6 +89,7 @@ The app is already uploaded and running on the device.
 4. **Matrix Rain** - Falling green characters with glowing heads
 5. **Mystify** - Bouncing quadrilaterals with ghost trails
 6. **DVD Logo** - Classic bouncing logo with color changes on edge hits
+7. **Fireworks** - After Dark-style rockets and bursts; NeoPixels flash with each explosion
 
 ### Controls:
 - **Tap screen** - Skip to next mode

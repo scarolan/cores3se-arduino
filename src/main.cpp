@@ -1,5 +1,5 @@
 // Classic Screensavers — M5Stack CoreS3 SE
-// 6 modes: Flying Toasters, Pipes, Starfield, Matrix Rain, Mystify, Bouncing Logo
+// 7 modes: Flying Toasters, Pipes, Starfield, Matrix Rain, Mystify, Bouncing Logo, Fireworks
 // Touch to cycle modes. NeoPixels ambient glow. Runs forever as desk piece.
 
 #include <M5Unified.h>
@@ -53,6 +53,7 @@ enum Mode {
   MODE_MATRIX,
   MODE_MYSTIFY,
   MODE_BOUNCE,
+  MODE_FIREWORKS,
   MODE_COUNT
 };
 static Mode currentMode = MODE_TOASTERS;
@@ -746,6 +747,176 @@ static void renderBounce(uint8_t* buf) {
 }
 
 // ============================================================
+// MODE 7: Fireworks (After Dark homage)
+// Rockets launch from the bottom, burst into colored sparks.
+// Explosions flash the NeoPixels near the burst's x position.
+// ============================================================
+#define MAX_ROCKETS 4
+#define MAX_SPARKS 220
+#define FW_GRAVITY 0.045f
+
+struct Rocket {
+  float x, y;
+  float vx, vy;
+  float targetY;
+  float hue;
+  bool active;
+};
+
+struct Spark {
+  float x, y;
+  float vx, vy;
+  float hue;
+  uint8_t life;
+  uint8_t maxLife;
+  bool white;
+  bool active;
+};
+
+static Rocket rockets[MAX_ROCKETS];
+static Spark sparks[MAX_SPARKS];
+
+// Flash NeoPixels near screen-x cx; the EMA in updateNeoPixels()
+// smoothly decays the flash back to ambient screen sampling.
+static void neoFlash(uint8_t r, uint8_t g, uint8_t b, int cx) {
+  int center = (int)((int32_t)cx * NUM_LEDS / SCR_W);
+  if (center < 0) center = 0;
+  if (center >= NUM_LEDS) center = NUM_LEDS - 1;
+  for (int i = 0; i < NUM_LEDS; i++) {
+    int d = abs(i - center);
+    if (d > 4) continue;
+    uint8_t fall = 255 - d * 45;
+    uint8_t fr = ((uint16_t)r * fall) >> 8;
+    uint8_t fg = ((uint16_t)g * fall) >> 8;
+    uint8_t fb = ((uint16_t)b * fall) >> 8;
+    if (fr > neoR[i]) neoR[i] = fr;
+    if (fg > neoG[i]) neoG[i] = fg;
+    if (fb > neoB[i]) neoB[i] = fb;
+  }
+}
+
+static void launchRocket(Rocket& r) {
+  r.x = random(30, SCR_W - 30);
+  r.y = SCR_H - 1;
+  r.vx = (float)(random(0, 100) - 50) * 0.008f;   // slight horizontal drift
+  r.vy = -(2.6f + random(0, 60) * 0.01f);         // -2.6 .. -3.2 px/frame
+  r.targetY = random(35, SCR_H / 2);
+  r.hue = random(0, 360);
+  r.active = true;
+}
+
+static void initFireworks() {
+  for (int i = 0; i < MAX_ROCKETS; i++) rockets[i].active = false;
+  for (int i = 0; i < MAX_SPARKS; i++) sparks[i].active = false;
+
+  // Kick things off with a rocket already on its way up
+  launchRocket(rockets[0]);
+  rockets[0].y = SCR_H - random(20, 80);
+}
+
+static Spark* allocSpark() {
+  for (int i = 0; i < MAX_SPARKS; i++) {
+    if (!sparks[i].active) return &sparks[i];
+  }
+  return nullptr;
+}
+
+static void explodeRocket(Rocket& r) {
+  int count = random(35, 60);
+  bool whiteBurst = random(0, 100) < 25;
+  for (int i = 0; i < count; i++) {
+    Spark* s = allocSpark();
+    if (!s) break;
+    float ang = random(0, 628) * 0.01f;           // 0 .. ~2*pi
+    float spd = 0.4f + random(0, 100) * 0.022f;   // 0.4 .. 2.6 px/frame
+    s->x = r.x;
+    s->y = r.y;
+    s->vx = cosf(ang) * spd;
+    s->vy = sinf(ang) * spd * 0.9f;               // slightly squashed burst
+    s->maxLife = s->life = random(35, 85);
+    s->hue = r.hue + random(-25, 26);             // color variation
+    if (s->hue < 0.0f) s->hue += 360.0f;
+    if (s->hue >= 360.0f) s->hue -= 360.0f;
+    s->white = whiteBurst || (random(0, 100) < 12);
+    s->active = true;
+  }
+
+  uint8_t fc = whiteBurst ? rgb332(255, 255, 255)
+                          : hsvToRgb332(r.hue, 1.0f, 1.0f);
+  uint8_t fr, fg, fb;
+  rgb332_unpack(fc, fr, fg, fb);
+  neoFlash(fr, fg, fb, (int)r.x);
+}
+
+static void renderFireworks(uint8_t* buf) {
+  // Fade previous frame so rockets and sparks leave trails
+  int total = SCR_W * SCR_H;
+  for (int i = 0; i < total; i++) {
+    buf[i] = fadeLUT[buf[i]];
+  }
+
+  // Keep the sky lively with random launches
+  if (random(0, 100) < 5) {
+    for (int i = 0; i < MAX_ROCKETS; i++) {
+      if (!rockets[i].active) { launchRocket(rockets[i]); break; }
+    }
+  }
+
+  // Update and draw rockets
+  uint8_t headColor = rgb332(255, 240, 200);
+  for (int i = 0; i < MAX_ROCKETS; i++) {
+    Rocket& r = rockets[i];
+    if (!r.active) continue;
+    r.x += r.vx;
+    r.y += r.vy;
+    r.vy += 0.025f;  // gravity slows the ascent
+
+    // Orange embers dripping off the ascending rocket
+    if (random(0, 100) < 60) {
+      int ex = (int)r.x + random(-1, 2);
+      int ey = (int)r.y + random(1, 4);
+      if (ex >= 0 && ex < SCR_W && ey >= 0 && ey < SCR_H)
+        buf[ey * SCR_W + ex] = rgb332(255, 140, 40);
+    }
+
+    int ix = (int)r.x, iy = (int)r.y;
+    if (ix >= 0 && ix < SCR_W && iy >= 0 && iy < SCR_H)
+      buf[iy * SCR_W + ix] = headColor;
+
+    if (r.y <= r.targetY || r.vy > -0.5f) {
+      r.active = false;
+      explodeRocket(r);
+    }
+  }
+
+  // Update and draw sparks
+  for (int i = 0; i < MAX_SPARKS; i++) {
+    Spark& s = sparks[i];
+    if (!s.active) continue;
+    s.x += s.vx;
+    s.y += s.vy;
+    s.vy += FW_GRAVITY;
+    s.vx *= 0.985f;  // air drag
+    s.life--;
+    if (s.life == 0 || s.y >= SCR_H || s.x < 0 || s.x >= SCR_W) {
+      s.active = false;
+      continue;
+    }
+
+    // Twinkle: sparks blink in and out
+    if (random(0, 100) < 18) continue;
+
+    float t = (float)s.life / s.maxLife;  // 1 -> 0 as spark dies
+    uint8_t v = 60 + (uint8_t)(t * 195);
+    uint8_t c = s.white ? rgb332(v, v, v)
+                        : hsvToRgb332(s.hue, 1.0f, (float)v * (1.0f / 255.0f));
+    int ix = (int)s.x, iy = (int)s.y;
+    if (ix >= 0 && ix < SCR_W && iy >= 0 && iy < SCR_H)
+      buf[iy * SCR_W + ix] = c;
+  }
+}
+
+// ============================================================
 // diffDraw — push only changed pixels
 // ============================================================
 static void diffDraw(LGFX_Sprite* sp0, LGFX_Sprite* sp1) {
@@ -914,6 +1085,7 @@ static void activateNextMode() {
     case MODE_MATRIX:   initMatrix(); break;
     case MODE_MYSTIFY:  initMystify(); break;
     case MODE_BOUNCE:   initBounce(); break;
+    case MODE_FIREWORKS: initFireworks(); break;
     default: break;
   }
 }
@@ -1009,6 +1181,7 @@ void loop() {
     case MODE_MATRIX:    renderMatrix(buf);     break;
     case MODE_MYSTIFY:   renderMystify(buf);    break;
     case MODE_BOUNCE:    renderBounce(buf);     break;
+    case MODE_FIREWORKS: renderFireworks(buf);  break;
     default: break;
   }
 
@@ -1036,7 +1209,8 @@ void loop() {
   }
 
   // --- Push to display ---
-  bool useDiffDraw = (currentMode == MODE_MATRIX || currentMode == MODE_MYSTIFY);
+  bool useDiffDraw = (currentMode == MODE_MATRIX || currentMode == MODE_MYSTIFY ||
+                      currentMode == MODE_FIREWORKS);
   if (useDiffDraw) {
     diffDraw(&_sprites[_flip], &_sprites[_flip ^ 1]);
   } else {
