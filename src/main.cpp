@@ -2,9 +2,10 @@
 // 7 modes: Flying Toasters, Pipes, Starfield, Matrix Rain, Mystify, Bouncing Logo, Fireworks
 // Touch to cycle modes. NeoPixels ambient glow. Runs forever as desk piece.
 
+#include <SD.h>
+#include <SPI.h>
 #include <M5Unified.h>
 #include <FastLED.h>
-// #include <SD.h>  // Uncomment for screenshot feature
 #include "toaster_sprites.h"
 #include "dvd_logo.h"
 
@@ -990,8 +991,8 @@ static void updateNeoPixels(uint8_t* buf) {
 
 // ============================================================
 // Screenshot — save current frame as 24-bit BMP to SD card
-// To enable: uncomment #include <SD.h> above, and set
-// ENABLE_SCREENSHOTS to 1. Press BtnB (bottom middle) to capture.
+// To enable: set ENABLE_SCREENSHOTS to 1.
+// Press BtnB (bottom middle) to capture.
 // ============================================================
 #define ENABLE_SCREENSHOTS 0
 
@@ -1124,7 +1125,14 @@ void setup() {
   }
 
 #if ENABLE_SCREENSHOTS
-  sdReady = SD.begin(GPIO_NUM_4, SPI, 25000000);
+  static SPIClass sdSPI(FSPI);
+  sdSPI.begin(GPIO_NUM_36, GPIO_NUM_35, GPIO_NUM_37, GPIO_NUM_4);
+  sdReady = SD.begin(GPIO_NUM_4, sdSPI, 4000000);
+  if (!sdReady) {
+    static SPIClass sdSPI3(SPI3_HOST);
+    sdSPI3.begin(GPIO_NUM_36, GPIO_NUM_35, GPIO_NUM_37, GPIO_NUM_4);
+    sdReady = SD.begin(GPIO_NUM_4, sdSPI3, 4000000);
+  }
   if (!sdReady) sdReady = SD.begin();
   if (sdReady) findNextScreenshotNum();
 #endif
@@ -1146,24 +1154,27 @@ void loop() {
   uint32_t now = millis();
   frameCount++;
 
-  // --- Touch screen: cycle mode ---
-  auto touch = M5.Touch.getDetail();
-  if (touch.wasPressed()) {
-    if (!transitioning) {
-      startTransition();
-    }
-  }
-
 #if ENABLE_SCREENSHOTS
-  // --- BtnB (bottom middle): screenshot ---
-  if (M5.BtnB.wasPressed()) {
+  // --- BtnB (bottom middle): screenshot (check before touch handler) ---
+  bool btnBPressed = M5.BtnB.wasPressed();
+  if (btnBPressed) {
     LGFX_Sprite& curSp = _sprites[_flip];
     uint8_t* curBuf = (uint8_t*)curSp.getBuffer();
     lcd.endWrite();
     saveScreenshot(curBuf);
     lcd.startWrite();
   }
+#else
+  bool btnBPressed = false;
 #endif
+
+  // --- Touch screen: cycle mode (skip if BtnB took this touch) ---
+  auto touch = M5.Touch.getDetail();
+  if (touch.wasPressed() && !btnBPressed) {
+    if (!transitioning) {
+      startTransition();
+    }
+  }
 
   // --- Auto-transition timer ---
   if (!transitioning && (now - modeStartTime >= modeDuration)) {

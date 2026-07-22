@@ -4,7 +4,7 @@ A collection of visual apps and screensavers for the [M5Stack CoreS3 SE](https:/
 
 ## Screenshots
 
-The active app is **Classic Screensavers** -- 6 modes that auto-cycle with fade transitions. Tap the screen to skip to the next mode.
+The active app is **Classic Screensavers** -- 7 modes that auto-cycle with fade transitions. Tap the screen to skip to the next mode.
 
 | | |
 |---|---|
@@ -14,6 +14,8 @@ The active app is **Classic Screensavers** -- 6 modes that auto-cycle with fade 
 | **Starfield** -- 500 stars with perspective projection and motion streaks | **Matrix Rain** -- Falling green characters with glowing heads and fade trails |
 | ![Mystify](screenshots/mystify.png) | ![DVD Logo](screenshots/dvd_logo.png) |
 | **Mystify** -- Bouncing quadrilaterals with color-cycling ghost trails | **DVD Logo** -- The classic bouncing logo, color changes on each edge hit |
+| ![Fireworks](screenshots/fireworks.png) | |
+| **Fireworks** -- After Dark fireworks with random bursts and NeoPixel flash accents | |
 
 ## Requirements
 
@@ -43,7 +45,7 @@ Each app is a standalone `main.cpp`. To run a different app, copy its `main.cpp`
 
 | App | Description | How to Install |
 |---|---|---|
-| **Screensavers** (active) | 6 classic screensaver modes with auto-cycling | `pio run -t upload` |
+| **Screensavers** (active) | 7 classic screensaver modes with auto-cycling | `pio run -t upload` |
 | **Generative Art** | Plasma, flow field particles, moire rings, cellular drift | `cp apps/genart/main.cpp src/main.cpp && pio run -t upload` |
 | **Weather Station** | OpenWeatherMap display with icons (requires WiFi config) | See [Weather Setup](#weather-station) below |
 | **Mini TV** | Plays RGB332 video files from SD card | `cp apps/minitv/main.cpp src/main.cpp && pio run -t upload` |
@@ -95,8 +97,8 @@ These only need to be re-run if you change the source images. The generated head
 
 A built-in BMP screenshot feature is included but disabled by default. To enable it:
 
-1. In `src/main.cpp`, uncomment `#include <SD.h>` and set `ENABLE_SCREENSHOTS` to `1`
-2. Insert a microSD card
+1. In `src/main.cpp`, set `ENABLE_SCREENSHOTS` to `1`
+2. Insert a microSD card (FAT32, 32GB or smaller)
 3. Build and flash
 4. Press **BtnB** (bottom-center touch area) to save a 24-bit BMP to the SD card
 5. NeoPixels flash white to confirm each capture
