@@ -1,5 +1,5 @@
 // Classic Screensavers — M5Stack CoreS3 SE
-// 7 modes: Flying Toasters, Pipes, Starfield, Matrix Rain, Mystify, Bouncing Logo, Fireworks
+// 8 modes: Flying Toasters, Pipes, Starfield, Matrix Rain, Mystify, Bouncing Logo, Fireworks, Starry Night
 // Touch to cycle modes. NeoPixels ambient glow. Runs forever as desk piece.
 
 #include <SD.h>
@@ -55,6 +55,7 @@ enum Mode {
   MODE_MYSTIFY,
   MODE_BOUNCE,
   MODE_FIREWORKS,
+  MODE_STARRYNIGHT,
   MODE_COUNT
 };
 static Mode currentMode = MODE_TOASTERS;
@@ -918,6 +919,377 @@ static void renderFireworks(uint8_t* buf) {
 }
 
 // ============================================================
+// MODE 8: Starry Night (After Dark homage)
+// City skyline silhouette, twinkling stars fade in to steady
+// state, building windows glow, occasional shooting stars.
+// ============================================================
+#define SN_MAX_STARS 120
+#define SN_MAX_WINDOWS 500
+#define SN_MAX_SHOOTERS 3
+
+struct SkyStar {
+  int16_t x, y;
+  uint8_t brightness;
+  uint8_t targetBright;
+  uint8_t twinkleTimer;
+  uint8_t twinkleRate;
+  uint8_t hue;
+  bool colored;
+};
+
+struct BuildingWindow {
+  int16_t x, y;
+  uint8_t w, h;
+  uint8_t brightness;
+  uint8_t targetBright;
+  uint8_t warmth;
+};
+
+struct ShootingStar {
+  float x, y;
+  float vx, vy;
+  uint8_t life;
+  uint8_t maxLife;
+  bool active;
+};
+
+static SkyStar snStars[SN_MAX_STARS];
+static BuildingWindow snWindows[SN_MAX_WINDOWS];
+static ShootingStar snShooters[SN_MAX_SHOOTERS];
+static uint16_t snFadeInTimer = 0;
+static bool snSteadyState = false;
+static uint8_t* snBackground = nullptr;  // pre-rendered sky + skyline
+
+struct Building {
+  int16_t x, w, h;
+  uint8_t shade;
+  uint8_t shape;  // bit 0: tiered top, bit 1: antenna mast
+};
+
+#define SN_TIER_H 14
+#define SN_ANT_H 12
+
+#define SN_NUM_BUILDINGS 26
+static const Building snBuildings[SN_NUM_BUILDINGS] = {
+  // Back row (hazy distant silhouettes — drawn first so front row overlaps)
+  {  0,  40,  35, 0, 0},
+  { 35,  45,  40, 0, 0},
+  { 75,  38,  38, 0, 0},
+  {110,  42,  42, 0, 0},
+  {148,  50,  36, 0, 0},
+  {192,  44,  40, 0, 0},
+  {230,  48,  38, 0, 0},
+  {274,  48,  42, 0, 0},
+  // Front row (taller — the main skyline, spans full 320px)
+  {  0,  22,  55, 2, 0},
+  { 18,  12,  80, 1, 2},
+  { 28,  24,  60, 2, 0},
+  { 50,  16,  95, 1, 1},
+  { 64,  28,  65, 2, 0},
+  { 88,  14, 105, 1, 3},
+  {100,  26,  70, 2, 1},
+  {124,  18,  90, 1, 2},
+  {140,  30,  58, 2, 0},
+  {166,  14, 100, 1, 1},
+  {178,  26,  68, 2, 0},
+  {202,  20,  85, 1, 2},
+  {220,  28,  62, 2, 1},
+  {244,  16,  92, 1, 3},
+  {258,  26,  58, 2, 0},
+  {280,  14,  78, 1, 2},
+  {292,  30,  52, 2, 0},
+};
+
+static bool snPointInBuilding(int px, int py) {
+  int groundY = SCR_H - 1;
+  for (int i = 0; i < SN_NUM_BUILDINGS; i++) {
+    int effH = snBuildings[i].h + ((snBuildings[i].shape & 1) ? SN_TIER_H : 0);
+    int topY = groundY - effH;
+    if (px >= snBuildings[i].x && px < snBuildings[i].x + snBuildings[i].w &&
+        py >= topY && py <= groundY)
+      return true;
+  }
+  return false;
+}
+
+static void initStarryNight() {
+  snFadeInTimer = 0;
+  snSteadyState = false;
+
+  if (!snBackground) snBackground = (uint8_t*)ps_malloc(SCR_W * SCR_H);
+
+  // Sky: vertical gradient from near-black to purple dusk.
+  // RGB332 only has 8 red / 8 green / 4 blue levels, so a plain
+  // gradient collapses into flat bands. Ordered (Bayer) dithering
+  // mixes adjacent levels in a fine pattern to fake the in-betweens.
+  static const uint8_t bayer[4][4] = {
+    { 0,  8,  2, 10},
+    {12,  4, 14,  6},
+    { 3, 11,  1,  9},
+    {15,  7, 13,  5},
+  };
+  for (int y = 0; y < SCR_H; y++) {
+    float t = (float)y / (SCR_H - 1);
+    int fr = (int)(64.0f * t);          // 0 -> 64
+    int fb = (int)(40.0f + 88.0f * t);  // 40 -> 128
+    for (int x = 0; x < SCR_W; x++) {
+      int d = bayer[y & 3][x & 3];
+      int r = fr + d * 2;   // red quantization step is 32 -> amplitude 32/16
+      int b = fb + d * 4;   // blue quantization step is 64 -> amplitude 64/16
+      if (r > 255) r = 255;
+      if (b > 255) b = 255;
+      snBackground[y * SCR_W + x] = rgb332(r, 0, b);
+    }
+  }
+
+  // Skyline drawn once into the background buffer.
+  static const uint8_t buildShades[] = {
+    rgb332(64, 32, 96),  // shade 0: back row — hazy, lighter than sky
+    rgb332(0, 0, 0),     // shade 1: tall towers — pure silhouette
+    rgb332(0, 0, 64),    // shade 2: mid buildings — hint of blue
+  };
+  static const uint8_t roofShades[] = {
+    rgb332(96, 64, 128),
+    rgb332(32, 32, 64),
+    rgb332(32, 32, 64),
+  };
+  uint8_t mastColor = rgb332(96, 96, 128);
+  int groundY = SCR_H - 1;
+  for (int i = 0; i < SN_NUM_BUILDINGS; i++) {
+    const Building& bl = snBuildings[i];
+    int topY = groundY - bl.h;
+    uint8_t s = bl.shade;
+    fillRect(snBackground, bl.x, topY, bl.w, bl.h, buildShades[s]);
+    fillRect(snBackground, bl.x, topY, bl.w, 2, roofShades[s]);
+
+    int peakY = topY;
+    if (bl.shape & 1) {
+      // Tiered top: narrower upper section
+      int tw = (bl.w * 6) / 10;
+      int tx = bl.x + (bl.w - tw) / 2;
+      peakY = topY - SN_TIER_H;
+      fillRect(snBackground, tx, peakY, tw, SN_TIER_H, buildShades[s]);
+      fillRect(snBackground, tx, peakY, tw, 2, roofShades[s]);
+    }
+    if (bl.shape & 2) {
+      // Antenna mast (beacon blinks at render time)
+      int ax = bl.x + bl.w / 2;
+      int aTop = peakY - SN_ANT_H;
+      for (int y = aTop; y < peakY; y++) {
+        if (y >= 0 && ax >= 0 && ax < SCR_W)
+          snBackground[y * SCR_W + ax] = mastColor;
+      }
+    }
+  }
+
+  for (int i = 0; i < SN_MAX_STARS; i++) {
+    SkyStar& s = snStars[i];
+    // Stars fill the whole sky, including gaps between towers —
+    // only excluded from building interiors (with a 2px margin
+    // so the cross-glow doesn't bleed onto silhouettes).
+    int skyLimit = SCR_H - 45;
+    do {
+      s.x = random(2, SCR_W - 2);
+      s.y = random(0, skyLimit);
+    } while (snPointInBuilding(s.x - 2, s.y + 2) || snPointInBuilding(s.x + 2, s.y + 2) ||
+             snPointInBuilding(s.x, s.y - 2));
+    s.brightness = 0;
+    s.targetBright = random(80, 256);
+    s.twinkleTimer = random(0, 200);
+    s.twinkleRate = random(60, 180);
+    s.colored = random(0, 100) < 15;
+    if (s.colored) {
+      int r = random(0, 4);
+      if (r == 0) s.hue = random(0, 30);
+      else if (r == 1) s.hue = random(200, 240);
+      else if (r == 2) s.hue = random(30, 60);
+      else s.hue = random(340, 360);
+    } else {
+      s.hue = 0;
+    }
+  }
+
+  // Each building picks its own window size/spacing so facades
+  // differ in texture: tiny portholes, wide office strips, etc.
+  static const uint8_t winStyles[][2] = {
+    {2, 2}, {2, 3}, {3, 4}, {4, 2}, {3, 2},
+  };
+  int wIdx = 0;
+  for (int b = 0; b < SN_NUM_BUILDINGS && wIdx < SN_MAX_WINDOWS; b++) {
+    const Building& bl = snBuildings[b];
+    if (bl.shade == 0) continue;
+    int st = random(0, 5);
+    int ww = winStyles[st][0], wh = winStyles[st][1];
+    int spX = ww + 2, spY = wh + 3;
+    int density = random(0, 100) < 30 ? 85 : 60;
+    int topY = (SCR_H - 1) - bl.h;
+    int cols = (bl.w - 3) / spX;
+    int rows = (bl.h - 4) / spY;
+    for (int r = 0; r < rows && wIdx < SN_MAX_WINDOWS; r++) {
+      for (int c = 0; c < cols && wIdx < SN_MAX_WINDOWS; c++) {
+        if (random(0, 100) < density) {
+          BuildingWindow& w = snWindows[wIdx++];
+          w.x = bl.x + 2 + c * spX;
+          w.y = topY + 3 + r * spY;
+          w.w = ww;
+          w.h = wh;
+          w.brightness = 0;
+          w.targetBright = random(100, 220);
+          w.warmth = random(0, 3);
+        }
+      }
+    }
+  }
+  for (int i = wIdx; i < SN_MAX_WINDOWS; i++) {
+    snWindows[i].brightness = 0;
+    snWindows[i].targetBright = 0;
+  }
+
+  for (int i = 0; i < SN_MAX_SHOOTERS; i++) {
+    snShooters[i].active = false;
+  }
+}
+
+static void renderStarryNight(uint8_t* buf) {
+  // Static sky + skyline pre-rendered at init
+  memcpy(buf, snBackground, SCR_W * SCR_H);
+
+  // Slow-blinking red beacons atop the antenna masts
+  if ((frameCount >> 5) & 1) {
+    int groundY = SCR_H - 1;
+    for (int i = 0; i < SN_NUM_BUILDINGS; i++) {
+      const Building& bl = snBuildings[i];
+      if (!(bl.shape & 2)) continue;
+      int peakY = groundY - bl.h - ((bl.shape & 1) ? SN_TIER_H : 0);
+      int ax = bl.x + bl.w / 2;
+      int ay = peakY - SN_ANT_H - 1;
+      if (ay >= 0 && ax >= 0 && ax < SCR_W)
+        buf[ay * SCR_W + ax] = rgb332(255, 0, 0);
+    }
+  }
+
+  snFadeInTimer++;
+  float fadeProgress = 1.0f;
+  if (snFadeInTimer < 300) {
+    fadeProgress = (float)snFadeInTimer / 300.0f;
+    fadeProgress = fadeProgress * fadeProgress;
+  } else {
+    snSteadyState = true;
+  }
+
+  for (int i = 0; i < SN_MAX_STARS; i++) {
+    SkyStar& s = snStars[i];
+    s.twinkleTimer++;
+    if (s.twinkleTimer >= s.twinkleRate) {
+      s.twinkleTimer = 0;
+      s.targetBright = random(60, 256);
+      s.twinkleRate = random(60, 200);
+    }
+
+    int target = (int)((float)s.targetBright * fadeProgress);
+    if (s.brightness < target) s.brightness += min(3, target - s.brightness);
+    else if (s.brightness > target) s.brightness -= min(2, s.brightness - target);
+
+    if (s.brightness < 10) continue;
+
+    uint8_t c;
+    if (s.colored) {
+      float v = (float)s.brightness / 255.0f;
+      c = hsvToRgb332(s.hue, 0.6f, v);
+    } else {
+      c = rgb332(s.brightness, s.brightness, s.brightness);
+    }
+
+    if (s.x >= 0 && s.x < SCR_W && s.y >= 0 && s.y < SCR_H)
+      buf[s.y * SCR_W + s.x] = c;
+
+    if (s.brightness > 200 && s.y > 0 && s.y < SCR_H - 1 &&
+        s.x > 0 && s.x < SCR_W - 1) {
+      uint8_t dim = rgb332_dim(c, 80);
+      buf[(s.y - 1) * SCR_W + s.x] = dim;
+      buf[(s.y + 1) * SCR_W + s.x] = dim;
+      buf[s.y * SCR_W + s.x - 1] = dim;
+      buf[s.y * SCR_W + s.x + 1] = dim;
+    }
+  }
+
+  for (int i = 0; i < SN_MAX_WINDOWS; i++) {
+    BuildingWindow& w = snWindows[i];
+    if (w.targetBright == 0) continue;
+
+    if (snSteadyState && random(0, 2000) < 1) {
+      w.targetBright = w.targetBright > 50 ? 0 : random(120, 220);
+    }
+
+    int target = (int)((float)w.targetBright * fadeProgress);
+    if (w.brightness < target) w.brightness += min(2, target - w.brightness);
+    else if (w.brightness > target) w.brightness -= min(1, w.brightness - target);
+
+    if (w.brightness < 5) continue;
+
+    uint8_t c;
+    if (w.warmth == 0) c = rgb332(w.brightness, (uint8_t)(w.brightness * 0.85f), (uint8_t)(w.brightness * 0.4f));
+    else if (w.warmth == 1) c = rgb332(w.brightness, (uint8_t)(w.brightness * 0.9f), (uint8_t)(w.brightness * 0.6f));
+    else c = rgb332((uint8_t)(w.brightness * 0.7f), (uint8_t)(w.brightness * 0.8f), w.brightness);
+
+    if (w.x >= 0 && w.x + w.w < SCR_W && w.y >= 0 && w.y + w.h < SCR_H) {
+      for (int wy = 0; wy < w.h; wy++) {
+        for (int wx = 0; wx < w.w; wx++) {
+          buf[(w.y + wy) * SCR_W + w.x + wx] = c;
+        }
+      }
+    }
+  }
+
+  if (snSteadyState && random(0, 400) < 1) {
+    for (int i = 0; i < SN_MAX_SHOOTERS; i++) {
+      if (!snShooters[i].active) {
+        ShootingStar& ss = snShooters[i];
+        ss.x = random(0, SCR_W);
+        ss.y = random(5, SCR_H / 3);
+        float angle = (float)random(10, 40) * 0.0174533f;
+        float speed = 3.0f + random(0, 30) * 0.1f;
+        ss.vx = cosf(angle) * speed;
+        ss.vy = sinf(angle) * speed;
+        if (random(0, 2)) { ss.vx = -ss.vx; ss.x = SCR_W - ss.x; }
+        ss.maxLife = ss.life = random(20, 50);
+        ss.active = true;
+
+        neoFlash(200, 220, 255, (int)ss.x);
+        break;
+      }
+    }
+  }
+
+  for (int i = 0; i < SN_MAX_SHOOTERS; i++) {
+    ShootingStar& ss = snShooters[i];
+    if (!ss.active) continue;
+    ss.x += ss.vx;
+    ss.y += ss.vy;
+    ss.life--;
+    if (ss.life == 0 || ss.x < 0 || ss.x >= SCR_W || ss.y < 0 || ss.y >= SCR_H) {
+      ss.active = false;
+      continue;
+    }
+    float t = (float)ss.life / ss.maxLife;
+    uint8_t bv = (uint8_t)(255.0f * t);
+    uint8_t headColor = rgb332(bv, bv, bv);
+    int ix = (int)ss.x, iy = (int)ss.y;
+    if (ix >= 0 && ix < SCR_W && iy >= 0 && iy < SCR_H)
+      buf[iy * SCR_W + ix] = headColor;
+    for (int tail = 1; tail <= 6; tail++) {
+      int tx = ix - (int)(ss.vx * tail * 0.3f);
+      int ty = iy - (int)(ss.vy * tail * 0.3f);
+      if (tx >= 0 && tx < SCR_W && ty >= 0 && ty < SCR_H) {
+        float tf = t * (1.0f - (float)tail / 8.0f);
+        uint8_t tv = (uint8_t)(200.0f * tf);
+        buf[ty * SCR_W + tx] = rgb332(tv, tv, (uint8_t)(tv * 0.8f));
+      }
+    }
+  }
+}
+
+// ============================================================
 // diffDraw — push only changed pixels
 // ============================================================
 static void diffDraw(LGFX_Sprite* sp0, LGFX_Sprite* sp1) {
@@ -1087,6 +1459,7 @@ static void activateNextMode() {
     case MODE_MYSTIFY:  initMystify(); break;
     case MODE_BOUNCE:   initBounce(); break;
     case MODE_FIREWORKS: initFireworks(); break;
+    case MODE_STARRYNIGHT: initStarryNight(); break;
     default: break;
   }
 }
@@ -1193,6 +1566,7 @@ void loop() {
     case MODE_MYSTIFY:   renderMystify(buf);    break;
     case MODE_BOUNCE:    renderBounce(buf);     break;
     case MODE_FIREWORKS: renderFireworks(buf);  break;
+    case MODE_STARRYNIGHT: renderStarryNight(buf); break;
     default: break;
   }
 
