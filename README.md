@@ -4,7 +4,7 @@ A collection of visual apps and screensavers for the [M5Stack CoreS3 SE](https:/
 
 ## Screenshots
 
-The active app is **Classic Screensavers** -- 7 modes that auto-cycle with fade transitions. Tap the screen to skip to the next mode.
+The active app is **Classic Screensavers** -- 8 modes that auto-cycle with fade transitions. Tap the screen to skip to the next mode.
 
 | | |
 |---|---|
@@ -14,8 +14,8 @@ The active app is **Classic Screensavers** -- 7 modes that auto-cycle with fade 
 | **Starfield** -- 500 stars with perspective projection and motion streaks | **Matrix Rain** -- Falling green characters with glowing heads and fade trails |
 | ![Mystify](screenshots/mystify.png) | ![DVD Logo](screenshots/dvd_logo.png) |
 | **Mystify** -- Bouncing quadrilaterals with color-cycling ghost trails | **DVD Logo** -- The classic bouncing logo, color changes on each edge hit |
-| ![Fireworks](screenshots/fireworks.png) | |
-| **Fireworks** -- After Dark fireworks with random bursts and NeoPixel flash accents | |
+| ![Fireworks](screenshots/fireworks.png) | ![Starry Night](screenshots/starry_night.png) |
+| **Fireworks** -- After Dark fireworks with random bursts and NeoPixel flash accents | **Starry Night** -- City skyline with twinkling stars, glowing windows, and shooting stars that flash the NeoPixels |
 
 ## Requirements
 
